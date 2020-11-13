@@ -1,7 +1,9 @@
+#ifndef MAIN_WINDOW_H
+#define MAIN_WINDOW_H
+
 #include "iohandler.h"
 #include <QDialog>
 #include <QTextEdit>
-#include <QMessageBox>
 
 class MainWindow : public QDialog
 {
@@ -10,8 +12,10 @@ public:
     QString origText;
     QDialog *di;
     QTextEdit *edit;
-    void show();
-    void errMsg(QString text);
+    IOHandler *io = new IOHandler();
+
+    void show(int argc, char **argv);
+    void errMsg(std::string text);
 public slots:
     void writeFile();
     void loadFile();
@@ -19,3 +23,5 @@ public slots:
     void newFile();
     void indicateUnsaved();
 };
+
+#endif

@@ -2,120 +2,120 @@
 
 #include <QGridLayout>
 #include <QMenuBar>
-#include <QDebug>
+#include <QMessageBox>
+#include <QApplication>
 #include <iostream>
 
-void MainWindow::show()
+void MainWindow::show(int argc, char **argv)
 {
+    QGridLayout *layout = new QGridLayout(this);
+
     this->di = new QDialog();
     di->setWindowTitle("Lightweight Qt Text Editor");
+    di->setGeometry(di->x(), di->y(), 500, 500);
+    di->setLayout(layout);
 
     this->edit = new QTextEdit(di);
     connect(edit, &QTextEdit::textChanged, this, &MainWindow::indicateUnsaved);
+    layout->addWidget(edit);
 
-    QGridLayout *layout = new QGridLayout(this);
     QMenuBar *bar = new QMenuBar(this);
+    layout->setMenuBar(bar);
+
     QMenu *fileMenu = bar->addMenu(tr("&File"));
 
-    QAction* newAct = new QAction(QIcon::fromTheme("document-new"), tr("&New..."), this);
-    connect(newAct, &QAction::triggered, this, &MainWindow::newFile);
+    fileMenu->addAction(QIcon::fromTheme("document-new"), tr("&New..."), this, &MainWindow::newFile, QKeySequence(tr("Ctrl+N")))
+            ->setStatusTip(tr("Create a new file."));
 
-    newAct->setStatusTip(tr("Create a new file."));
-    newAct->setShortcut(QKeySequence(tr("Ctrl+N")));
+    fileMenu->addAction(QIcon::fromTheme("document-open"), tr("&Open..."), this, &MainWindow::loadFile, QKeySequence(tr("Ctrl+O")))
+            ->setStatusTip(tr("Open an existing file."));
 
-    fileMenu->addAction(newAct);
+    fileMenu->addAction(QIcon::fromTheme("document-save"), tr("&Save..."), this, &MainWindow::writeFile, QKeySequence(tr("Ctrl+S")))
+            ->setStatusTip(tr("Save current file."));
+    fileMenu->addAction(QIcon::fromTheme("document-save-as"), tr("&Save As..."), this, &MainWindow::saveAs, QKeySequence(tr("Ctrl+Shift+S")))
+            ->setStatusTip(tr("Save current file to a new location."));
 
-    QAction* openAct = new QAction(QIcon::fromTheme("document-open"), tr("&Open..."), this);
-    connect(openAct, &QAction::triggered, this, &MainWindow::loadFile);
+    QMenu *aboutMenu = bar->addMenu(tr("&About"));
 
-    openAct->setStatusTip(tr("Open an existing file."));
-    openAct->setShortcut(QKeySequence(tr("Ctrl+O")));
+    QMessageBox *aboutBox = new QMessageBox(QMessageBox::NoIcon, tr("About LQTE"), tr("LQTE is a highly simplistic and lightweight text editor written in Qt, intended to be a tiny alternative to other text editors available, sacrificing features for the sake of lightness and simplicity.\nWritten by: swirl (aka sperg/binex)\nProject Repo: https://github.com/LQT-Apps/LQTE\nLQT Apps Project: https://github.com/LQT-Apps\nVersion: 1.1.0"), QMessageBox::Ok);
+    aboutBox->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
 
-    fileMenu->addAction(openAct);
+    aboutMenu->addAction(tr("&About..."), aboutBox, &QMessageBox::show)->setStatusTip(tr("About LQTE"));
+    aboutMenu->addAction(tr("&About Qt..."), qApp, &QApplication::aboutQt);
 
-    QAction* saveAct = new QAction(QIcon::fromTheme("document-save"), tr("&Save..."), this);
-    connect(saveAct, &QAction::triggered, this, &MainWindow::writeFile);
-
-    saveAct->setStatusTip(tr("Save current file."));
-    saveAct->setShortcut(QKeySequence(tr("Ctrl+S")));
-
-    fileMenu->addAction(saveAct);
-
-    QAction* saveAsAct = new QAction(QIcon::fromTheme("document-save-as"), tr("&Save As..."));
-    connect(saveAsAct, &QAction::triggered, this, &MainWindow::saveAs);
-
-    saveAsAct->setStatusTip(tr("Save current file to a new location."));
-    saveAsAct->setShortcut(QKeySequence(tr("Ctrl+Shift+S")));
-
-    fileMenu->addAction(saveAsAct);
-
-    layout->addWidget(edit);
-    layout->setMenuBar(bar);
-    di->setLayout(layout);
-
-    di->setGeometry(di->x(), di->y(), 500, 500);
+    if (argc > 1) {
+        try {
+            std::vector<QString> load = io->loadFile(argv[1]);
+            edit->setText(load[0]);
+            di->setWindowTitle(load[1]);
+            this->origText = load[0];
+        } catch (...) {
+            errMsg("The specified file does not exist, not opening anything.");
+        }
+    }
 
     di->show();
 }
 
-void MainWindow::errMsg(QString text) {
-    QMessageBox err;
-    err.setText(tr(text.toStdString().c_str()));
-    err.setStandardButtons(QMessageBox::Ok);
-    err.exec();
+void MainWindow::errMsg(std::string text) {
+    QMessageBox *err = new QMessageBox(QMessageBox::Critical, tr("Message"), tr(text.c_str()), QMessageBox::Ok);
+    err->show();
 }
 
 void MainWindow::writeFile() {
-    IOHandler *io = new IOHandler();
+    QString write;
+    try {
+        write = io->saveFile(edit->toPlainText());
+    } catch (...) {
+        return errMsg("Could not open file for writing. Check permissions and try again.");
+    }
+    if (write == "") return errMsg("No location specified.");
 
-    QString write = io->saveFile(edit->toPlainText().toStdString(), di->windowTitle().toStdString());
-    if (write == tr("Error: couldn't open for writing")) errMsg("Could not open file for writing. Check permissions and try again.");
-    else if (write == "") errMsg("No location specified.");
-    else di->setWindowTitle(write);
+    di->setWindowTitle(write);
     this->origText = edit->toPlainText();
     emit edit->textChanged();
 }
 void MainWindow::loadFile() {
-    IOHandler *io = new IOHandler();
-    QMessageBox buttonBox;
-    buttonBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
-    buttonBox.setText(tr("Are you SURE you want to close the current file?"));
-    buttonBox.setDefaultButton(QMessageBox::Cancel);
-
-    if (edit->toPlainText().isEmpty() || buttonBox.exec() == QMessageBox::Ok) {
-        std::vector<QString> load = io->loadFile();
-        edit->setText(load[0]);
-        di->setWindowTitle(load[1]);
-        this->origText = load[0];
+    std::vector<QString> load;
+    try {
+        load = io->loadFile();
+    } catch (...) {
+        return errMsg("Could not open file for reading. Check permissions and try again.");
     }
+
+    if (load[1] == "") return errMsg("No location specified.");
+
+    edit->setText(load[0]);
+    di->setWindowTitle(load[1]);
+    this->origText = load[0];
 }
 void MainWindow::saveAs() {
-    IOHandler *io = new IOHandler();
-    QString save = io->saveFileAs(edit->toPlainText().toStdString());
-    if (save == tr("Error: couldn't open for writing")) errMsg(tr("Could not open file for writing. Check permissions and try again."));
-    else if (save == "") errMsg(tr("No location specified, not saving."));
+    QString save;
+    try {
+        save = io->saveFileAs(edit->toPlainText());
+    }  catch (...) {
+        errMsg("Could not open file for writing. Check permissions and try again.");
+    }
+    if (save == "") errMsg("No location specified, not saving.");
     else di->setWindowTitle(save);
+
     this->origText = edit->toPlainText();
     emit edit->textChanged();
 }
 void MainWindow::newFile() {
-    IOHandler *io = new IOHandler();
-    QMessageBox buttonBox;
-    buttonBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
-    buttonBox.setText(tr("Are you SURE you want to close the current file?"));
-    buttonBox.setDefaultButton(QMessageBox::Cancel);
-
-    if (edit->toPlainText().isEmpty() || buttonBox.exec() == QMessageBox::Ok) {
-        QString newF = io->newFile();
-        if (newF == tr("Error: couldn't open for writing")) errMsg(tr("Could not open file in location for writing. Check permissions and try again."));
-        else if (newF == "") errMsg(tr("No location specified, not creating."));
-        else edit->setText("");
-        di->setWindowTitle(newF);
-        this->origText = "";
+    QString newF;
+    try {
+        newF = io->newFile();
+    } catch (...) {
+        errMsg("Could not open file in location for writing. Check permissions and try again.");
     }
+    if (newF == "") return errMsg("No location specified, not creating.");
+    edit->setText("");
+    di->setWindowTitle(newF);
+    this->origText = "";
 }
 
 void MainWindow::indicateUnsaved() {
-    if (edit->toPlainText() == origText) di->setWindowTitle(di->windowTitle().left(di->windowTitle().length() - 2));
-    else if (!di->windowTitle().endsWith(" *")) di->setWindowTitle(di->windowTitle() + " *");
+    if (edit->toPlainText() == origText && di->windowTitle().endsWith(" *")) di->setWindowTitle(di->windowTitle().left(di->windowTitle().length() - 2));
+    else if (edit->toPlainText() != origText && !di->windowTitle().endsWith(" *")) di->setWindowTitle(di->windowTitle() + " *");
 }
